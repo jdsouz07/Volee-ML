@@ -54,7 +54,8 @@ def model_inputs(df: pd.DataFrame, for_linear: bool = False) -> pd.DataFrame:
     """Select the feature columns, in a fixed order."""
     x = df[FEATURE_NAMES].copy()
     if for_linear:
-        x["glicko_prob"] = to_logit(x["glicko_prob"])
+        for col in ("glicko_prob", "margin_prob"):
+            x[col] = to_logit(x[col])
     return x
 
 
@@ -90,6 +91,8 @@ def predict(models: dict, df: pd.DataFrame) -> dict[str, np.ndarray]:
     return {
         "volee_glicko": df["glicko_prob"].to_numpy(),
         "standard_glicko": df["glicko_std_prob"].to_numpy(),
+        "tuned_glicko": df["glicko_tuned_prob"].to_numpy(),
+        "margin_glicko": df["margin_prob"].to_numpy(),
         "logistic_regression": models["logistic_regression"].predict_proba(model_inputs(df, for_linear=True))[:, 1],
         "gradient_boosting": models["gradient_boosting"].predict_proba(model_inputs(df))[:, 1],
     }

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Volee-ML · Match forecaster</title>
+<meta name="description" content="Forecast any current ATP or WTA match with a model that beats the Volee app's Glicko-2 rating system.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f1ea; --card: #fffdf9; --ink: #2a2126; --sub: #6f6368; --line: #e3d6c8;
+    --plum: #7a5468; --teal: #4b7f78; --gold: #b07a2c; --track: #efe6db;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1719; --card: #262024; --ink: #f1e9e3; --sub: #b3a6ab; --line: #3b3136;
+            --plum: #c393aa; --teal: #7fb3ab; --gold: #d8a861; --track: #332a2f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 Inter, system-ui, -apple-system, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 60px; }
+  h1 { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 34px; line-height: 1.15; margin: 0 0 8px; }
+  .lede { color: var(--sub); margin: 0 0 28px; max-width: 60ch; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; margin-bottom: 18px; }
+  .tabs { display: inline-flex; background: var(--track); border-radius: 999px; padding: 3px; margin-bottom: 18px; }
+  .tabs button { border: 0; background: none; padding: 7px 16px; border-radius: 999px; font: inherit; font-weight: 500;
+                 color: var(--sub); cursor: pointer; }
+  .tabs button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .pickers { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: end; }
+  label { display: block; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--sub); margin-bottom: 6px; }
+  input { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+          background: var(--bg); color: var(--ink); }
+  input:focus { outline: 2px solid var(--plum); outline-offset: 1px; }
+  .vs { color: var(--sub); font-weight: 600; padding-bottom: 10px; }
+  .row { margin-top: 22px; }
+  .row h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--sub); display: flex; justify-content: space-between; }
+  .bar { display: flex; height: 38px; border-radius: 10px; overflow: hidden; background: var(--track); font-weight: 600; font-size: 14px; }
+  .bar div { display: flex; align-items: center; padding: 0 12px; color: #fff; white-space: nowrap; transition: flex-basis .35s ease; min-width: 0; }
+  .bar .a { justify-content: flex-start; }
+  .bar .b { justify-content: flex-end; }
+  .glicko .a { background: #9b8a91; } .glicko .b { background: #c8bcc1; color: #2a2126; }
+  .model .a { background: var(--plum); } .model .b { background: var(--teal); }
+  .names { display: flex; justify-content: space-between; margin-top: 22px; font-weight: 600; }
+  .names span:first-child { color: var(--plum); } .names span:last-child { color: var(--teal); text-align: right; }
+  .why { margin: 14px 0 0; padding: 0; list-style: none; }
+  .why li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .why li:first-child { border-top: 0; }
+  .why .who { font-weight: 600; white-space: nowrap; }
+  .note { color: var(--sub); font-size: 13px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat b { display: block; font-family: Fraunces, Georgia, serif; font-size: 26px; }
+  .stat span { font-size: 13px; color: var(--sub); }
+  a { color: var(--plum); }
+  @media (max-width: 560px) {
+    .pickers { grid-template-columns: 1fr; } .vs { display: none; }
+    .stats { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Who wins? A tennis forecaster that beats the rating system</h1>
+  <p class="lede">Pick two current pros. The grey bar is the forecast from Glicko-2 exactly as the
+    <a href="https://apps.apple.com/us/app/volee-app/id6762168017">Volee</a> app runs it. The coloured bar is a model trained on
+    164,000 matches that uses <strong>only information Volee also collects</strong>: scores, dates, ages and ratings.</p>
+
+  <section class="card">
+    <div class="tabs" role="group" aria-label="Tour">
+      <button id="tab-atp" aria-pressed="true">Men</button>
+      <button id="tab-wta" aria-pressed="false">Women</button>
+    </div>
+    <div class="pickers">
+      <div><label for="pa">Player A</label><input id="pa" list="players" autocomplete="off"></div>
+      <div class="vs">vs</div>
+      <div><label for="pb">Player B</label><input id="pb" list="players" autocomplete="off"></div>
+    </div>
+    <datalist id="players"></datalist>
+
+    <div id="result" hidden>
+      <div class="names"><span id="na"></span><span id="nb"></span></div>
+      <div class="row">
+        <h3><span>Volee's Glicko-2 today</span></h3>
+        <div class="bar glicko"><div class="a" id="ga"></div><div class="b" id="gb"></div></div>
+      </div>
+      <div class="row">
+        <h3><span>The model</span></h3>
+        <div class="bar model"><div class="a" id="ma"></div><div class="b" id="mb"></div></div>
+      </div>
+      <div class="row">
+        <h3><span>What moves the model's forecast, biggest first</span></h3>
+        <ul class="why" id="why"></ul>
+      </div>
+    </div>
+    <p class="note" id="status">Loading players…</p>
+  </section>
+
+  <section class="card">
+    <div class="stats">
+      <div class="stat"><b>+1.74%</b><span>better log loss than Volee's Glicko-2 on 2023–26 matches (95% CI +1.41 to +2.09)</span></div>
+      <div class="stat"><b>65.2%</b><span>of held-out matches called correctly, vs 64.0%</span></div>
+      <div class="stat"><b>+3.1%</b><span>for players whose rating is still uncertain, the typical club case</span></div>
+    </div>
+    <p class="note" style="margin-top:16px">Logistic regression over 16 features, trained 2000–2019, tested on 2023–2026 with no leakage.
+      The same project introduces a margin-aware Glicko-2 that learns from game share and beats plain Glicko by 0.35% on its own.
+      <a href="https://github.com/jdsouz07/Volee-ML">Code, method and results →</a></p>
+  </section>
+
+  <p class="note" id="asof"></p>
+</main>
+
+<script src="model.js"></script>
+<script>
+  // Related inputs are shown as one line. Overlapping features split credit
+  // between them, so one can carry a negative weight on its own (see GUIDE.md,
+  // "multicollinearity"); summed as a group, each line means what it says.
+  const GROUPS = {
+    "Ratings": ["glicko_prob", "margin_prob", "rating_diff"],
+    "Recent results and margins": ["form_diff", "games_share_diff", "momentum_diff"],
+    "How settled the ratings are": ["rd_a", "rd_b"],
+    "Experience": ["experience_diff"],
+    "Time since last match": ["rest_days_a", "rest_days_b"],
+    "Age": ["age_a", "age_b"],
+    "Head-to-head": ["h2h_edge", "h2h_meetings"],
+  };
+
+  let data, tour = "atp", byName = {};
+  const $ = (id) => document.getElementById(id);
+
+  function surname(name) { return name.split(" ").slice(-1)[0]; }
+  function pct(p) { return Math.round(p * 100) + "%"; }
+
+  function fillBar(aEl, bEl, p, aName, bName) {
+    aEl.style.flexBasis = (p * 100) + "%";
+    bEl.style.flexBasis = ((1 - p) * 100) + "%";
+    aEl.textContent = p >= 0.1 ? pct(p) : "";
+    bEl.textContent = p <= 0.9 ? pct(1 - p) : "";
+  }
+
+  function setTour(t) {
+    tour = t;
+    $("tab-atp").setAttribute("aria-pressed", t === "atp");
+    $("tab-wta").setAttribute("aria-pressed", t === "wta");
+    const ids = Object.keys(data.players).filter((id) => data.players[id].tour === t)
+      .sort((x, y) => data.players[y].volee[0] - data.players[x].volee[0]);
+    byName = {};
+    ids.forEach((id) => { byName[data.players[id].name] = id; });
+    $("players").innerHTML = ids.map((id) => `<option value="${data.players[id].name}">`).join("");
+    $("pa").value = data.players[ids[0]].name;
+    $("pb").value = data.players[ids[1]].name;
+    update();
+  }
+
+  function update() {
+    const a = byName[$("pa").value], b = byName[$("pb").value];
+    if (!a || !b || a === b) {
+      $("result").hidden = true;
+      $("status").textContent = a === b && a ? "Pick two different players." : "Start typing a player's name and pick from the list.";
+      return;
+    }
+    $("status").textContent = "";
+    $("result").hidden = false;
+    const A = data.players[a], B = data.players[b];
+    const feats = demoFeatures(data, a, b);
+    const { probability, parts } = demoProbability(data, feats);
+    $("na").textContent = A.name;
+    $("nb").textContent = B.name;
+    fillBar($("ga"), $("gb"), feats.glicko_prob, A.name, B.name);
+    fillBar($("ma"), $("mb"), probability, A.name, B.name);
+
+    // Each group's net push, biggest first.
+    const contribution = Object.fromEntries(parts.map((p) => [p.name, p.contribution]));
+    const groups = Object.entries(GROUPS)
+      .map(([label, names]) => ({ label, total: names.reduce((s, n) => s + contribution[n], 0) }))
+      .filter((g) => Math.abs(g.total) > 0.01)
+      .sort((x, y) => Math.abs(y.total) - Math.abs(x.total));
+    $("why").innerHTML = groups.map((g) => {
+      const favours = g.total >= 0 ? A.name : B.name;
+      return `<li><span>${g.label}</span><span class="who">favours ${surname(favours)}</span></li>`;
+    }).join("") || "<li><span>Nothing stands out: an even match.</span></li>";
+  }
+
+  fetch("demo_data.json").then((r) => r.json()).then((d) => {
+    data = d;
+    $("asof").textContent = `Player data as of ${d.as_of}: ${Object.keys(d.players).length} players active since January 2025. `
+      + "Match results by Jeff Sackmann (CC BY-NC-SA 4.0).";
+    $("tab-atp").onclick = () => setTour("atp");
+    $("tab-wta").onclick = () => setTour("wta");
+    ["pa", "pb"].forEach((id) => $(id).addEventListener("input", update));
+    setTour("atp");
+  }).catch(() => { $("status").textContent = "Couldn't load the player data."; });
+</script>
+</body>
+</html>

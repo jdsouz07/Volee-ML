@@ -1,0 +1,14 @@
+{
+  "tuned_glicko": {
+    "initial_rd": 100,
+    "initial_vol": 0.06,
+    "tau": 1.2,
+    "margin_weight": 1.0
+  },
+  "margin_glicko": {
+    "initial_rd": 150,
+    "initial_vol": 0.09,
+    "tau": 1.2,
+    "margin_weight": 0.75
+  }
+}

@@ -35,6 +35,7 @@ import zlib
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from volee_ml import config
@@ -45,6 +46,7 @@ from volee_ml.glicko2 import Rating, inflate_for_inactivity, update, win_probabi
 # (A = the player we're predicting for, B = their opponent.)
 FEATURES = {
     "glicko_prob":      "Volee's own Glicko-2 forecast that A wins (0-1). Also the baseline.",
+    "margin_prob":      "Forecast from the margin-aware Glicko-2 (ratings.py), which also learns from game share.",
     "rating_diff":      "A's rating minus B's rating, in Glicko points.",
     "rd_a":             "How unsure A's rating is (Glicko RD). New or rusty players are high.",
     "rd_b":             "Same for B.",
@@ -125,8 +127,13 @@ def _momentum(state: PlayerState) -> float:
 # The replay
 # ---------------------------------------------------------------------------
 
-def build_features(matches: pd.DataFrame) -> pd.DataFrame:
-    """Replay `matches` in order and return one feature row per match."""
+def build_features(matches: pd.DataFrame, return_state: bool = False):
+    """Replay `matches` in order and return one feature row per match.
+
+    With return_state=True, also return where every player ended up
+    (their PlayerState) and the head-to-head counts. The live demo
+    (export.py) uses that to forecast matches that haven't happened yet.
+    """
     players: dict[str, PlayerState] = defaultdict(PlayerState)
     h2h: dict[tuple[str, str], int] = defaultdict(int)   # (winner, loser) -> times
     rows = []
@@ -200,7 +207,27 @@ def build_features(matches: pd.DataFrame) -> pd.DataFrame:
             state.rating_history.append(state.volee.rating)
         h2h[(m.winner_id, m.loser_id)] += 1
 
-    return pd.DataFrame(rows)
+    features = pd.DataFrame(rows)
+    _add_rating_variants(features, matches)
+    if return_state:
+        return features, dict(players), dict(h2h)
+    return features
+
+
+def _add_rating_variants(features: pd.DataFrame, matches: pd.DataFrame) -> None:
+    """Add forecasts from the two tuned rating systems (see tune.py).
+
+    Imported here, not at the top, because tune.py imports this file.
+    Both are replays of the same matches with the same A/B coin flips, so
+    row i lines up with row i above, and both only ever look backwards.
+    """
+    from volee_ml.ratings import replay
+    from volee_ml.tune import load_tuned
+
+    tuned = load_tuned()
+    flips = np.array([coin_flip(mid) for mid in matches["match_id"]])
+    features["glicko_tuned_prob"] = replay(matches, tuned["tuned_glicko"], flips)[0]   # baseline only
+    features["margin_prob"] = replay(matches, tuned["margin_glicko"], flips)[0]          # a model feature
 
 
 def split(features: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:

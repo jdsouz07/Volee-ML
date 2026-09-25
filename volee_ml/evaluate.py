@@ -14,9 +14,21 @@ HOW WE SCORE A FORECAST
   * AUC        — how well the model ranks likely winners above likely
                  losers. 0.5 = random, 1.0 = perfect.
 
+IS THE IMPROVEMENT REAL? (confidence intervals)
+A test set is one sample of history. If we'd happened to get slightly
+different matches, would the model still win? The BOOTSTRAP answers that
+without collecting new data: re-draw the test set many times from itself,
+recompute the improvement each time, and see how much it wobbles. The middle
+95% of those results is the 95% confidence interval. If the whole interval
+is above zero, the improvement isn't luck.
+
+One refinement: matches in the same tournament aren't independent (same
+week, same conditions, same players). So we re-draw whole TOURNAMENTS, not
+single matches. That's a "cluster bootstrap", and it gives honestly wider
+intervals.
+
 We also check CALIBRATION: of all the matches a model called 70%, did about
-70% actually happen? A well-calibrated model's forecasts can be shown to
-users as real percentages. That's what `calibration.png` shows.
+70% actually happen? That's what `calibration.png` shows.
 
 Outputs (committed to the repo): reports/results.md, reports/*.png
 """
@@ -41,10 +53,17 @@ from volee_ml.train import explain_logistic, model_inputs, predict
 LABELS = {
     "volee_glicko": "Volee's Glicko-2 (baseline)",
     "standard_glicko": "Glicko-2, textbook start values",
+    "tuned_glicko": "Glicko-2, tuned on validation",
+    "margin_glicko": "Margin-aware Glicko-2 (new)",
     "logistic_regression": "Logistic regression",
     "gradient_boosting": "Gradient boosting",
 }
+BOOTSTRAP_ROUNDS = 2000
 
+
+# ---------------------------------------------------------------------------
+# Scores
+# ---------------------------------------------------------------------------
 
 def score(y: np.ndarray, p: np.ndarray) -> dict:
     return {
@@ -70,10 +89,67 @@ def markdown(table: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Confidence intervals
+# ---------------------------------------------------------------------------
+
+def per_match_log_loss(y: np.ndarray, p: np.ndarray) -> np.ndarray:
+    p = np.clip(p, 1e-6, 1 - 1e-6)
+    return -(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+
+def tournament_of(match_ids: pd.Series) -> np.ndarray:
+    """'atp_2024-0339_300' -> 'atp_2024-0339': drop the match number."""
+    return match_ids.str.rsplit("_", n=1).str[0].to_numpy()
+
+
+def bootstrap_improvement(df: pd.DataFrame, p_new: np.ndarray, p_base: np.ndarray,
+                          rounds: int = BOOTSTRAP_ROUNDS, seed: int = config.RANDOM_SEED) -> tuple[float, float, float]:
+    """% log-loss improvement of p_new over p_base, with a 95% cluster-bootstrap interval.
+
+    Returns (estimate, low, high). Positive means p_new is better.
+    """
+    y = df["y"].to_numpy()
+    loss_new, loss_base = per_match_log_loss(y, p_new), per_match_log_loss(y, p_base)
+    _, cluster = np.unique(tournament_of(df["match_id"]), return_inverse=True)
+    n_clusters = cluster.max() + 1
+    # Per-tournament totals, so one re-draw is a cheap weighted sum.
+    sum_new = np.bincount(cluster, loss_new, n_clusters)
+    sum_base = np.bincount(cluster, loss_base, n_clusters)
+
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, n_clusters, size=(rounds, n_clusters))       # tournaments, with replacement
+    counts = np.apply_along_axis(np.bincount, 1, picks, minlength=n_clusters)
+    new_totals, base_totals = counts @ sum_new, counts @ sum_base
+    improvements = (base_totals - new_totals) / base_totals
+
+    estimate = (loss_base.sum() - loss_new.sum()) / loss_base.sum()
+    low, high = np.percentile(improvements, [2.5, 97.5])
+    return estimate, low, high
+
+
+def ci_table(df: pd.DataFrame, preds: dict) -> str:
+    """Improvement over Volee's Glicko-2 with its 95% interval.
+
+    (There's no separate column for the tuned Glicko: tune.py found Volee's
+    current settings are already the best plain-Glicko settings, so the two
+    baselines give the same forecasts to five decimal places.)
+    """
+    rows = ["| Model | Log-loss improvement vs Volee's Glicko-2 | 95% interval |", "|---|---|---|"]
+    for key in ("margin_glicko", "logistic_regression", "gradient_boosting"):
+        est, lo, hi = bootstrap_improvement(df, preds[key], preds["volee_glicko"])
+        rows.append(f"| {LABELS[key]} | {est:+.2%} | {lo:+.2%} to {hi:+.2%} |")
+    return "\n".join(rows)
+
+
+# ---------------------------------------------------------------------------
+# Charts
+# ---------------------------------------------------------------------------
+
 def plot_calibration(df: pd.DataFrame, preds: dict, path) -> None:
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.plot([0, 1], [0, 1], "--", color="grey", label="perfect")
-    for key in ("volee_glicko", "logistic_regression", "gradient_boosting"):
+    for key in ("volee_glicko", "margin_glicko", "logistic_regression"):
         frac, mean = calibration_curve(df["y"], preds[key], n_bins=10, strategy="quantile")
         ax.plot(mean, frac, "o-", label=LABELS[key])
     ax.set_xlabel("Forecast chance that A wins")
@@ -83,6 +159,46 @@ def plot_calibration(df: pd.DataFrame, preds: dict, path) -> None:
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
+
+
+def plot_by_year(df: pd.DataFrame, preds: dict, path) -> pd.DataFrame:
+    """Improvement over Volee's Glicko-2, one bar per year, with 95% intervals.
+
+    A result that only holds in one lucky year isn't a result. Validation
+    years are shown lighter: the models were compared on them, so the test
+    years (darker) are the stricter evidence.
+    """
+    rows = []
+    for year in sorted(df["year"].unique()):
+        mask = (df["year"] == year).to_numpy()
+        part = df[mask]
+        for key in ("margin_glicko", "logistic_regression"):
+            est, lo, hi = bootstrap_improvement(part, preds[key][mask], preds["volee_glicko"][mask], rounds=1000)
+            rows.append({"year": year, "model": key, "est": est, "lo": lo, "hi": hi})
+    table = pd.DataFrame(rows)
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    width = 0.38
+    for i, key in enumerate(("margin_glicko", "logistic_regression")):
+        part = table[table["model"] == key]
+        x = np.arange(len(part)) + (i - 0.5) * width
+        colors = ["#b9cfcb" if y < config.TEST_YEARS[0] else "#4b7f78" for y in part["year"]]
+        if key == "logistic_regression":
+            colors = ["#d9c2a0" if y < config.TEST_YEARS[0] else "#b07a2c" for y in part["year"]]
+        ax.bar(x, part["est"] * 100, width, color=colors, label=LABELS[key])
+        ax.errorbar(x, part["est"] * 100, yerr=[(part["est"] - part["lo"]) * 100, (part["hi"] - part["est"]) * 100],
+                    fmt="none", color="black", capsize=3, linewidth=1)
+    years = sorted(table["year"].unique())
+    ax.set_xticks(np.arange(len(years)))
+    ax.set_xticklabels([f"{y}\n{'test' if y >= config.TEST_YEARS[0] else 'valid'}" for y in years])
+    ax.axhline(0, color="grey", linewidth=0.8)
+    ax.set_ylabel("Log-loss improvement vs Volee (%)")
+    ax.set_title("Improvement over Volee's Glicko-2, by year (95% intervals)")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+    return table
 
 
 def plot_importance(model, df: pd.DataFrame, path) -> pd.Series:
@@ -109,6 +225,10 @@ def subgroup(df: pd.DataFrame, preds: dict, mask: pd.Series, name: str) -> str:
     return f"**{name}** ({len(part):,} matches)\n\n" + markdown(score_table(part, sub))
 
 
+# ---------------------------------------------------------------------------
+# The report
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
     features = load_features()
     _, valid, test = split(features)
@@ -118,12 +238,16 @@ if __name__ == "__main__":
     valid_preds, test_preds = predict(models, valid), predict(models, test)
     valid_table, test_table = score_table(valid, valid_preds), score_table(test, test_preds)
 
+    both = pd.concat([valid, test])
+    both_preds = {k: np.concatenate([valid_preds[k], test_preds[k]]) for k in valid_preds}
+
     config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     plot_calibration(test, test_preds, config.REPORTS_DIR / "calibration.png")
+    plot_by_year(both, both_preds, config.REPORTS_DIR / "by_year.png")
     importance = plot_importance(models["gradient_boosting"], valid, config.REPORTS_DIR / "feature_importance.png")
     weights = explain_logistic(models["logistic_regression"])
 
-    # Where do the models disagree most with Glicko? Players Glicko is unsure about.
+    # Players the rating system is unsure about: new or returning.
     newcomer = (test["rd_a"] > 90) | (test["rd_b"] > 90)
 
     report = f"""# Results
@@ -133,6 +257,15 @@ Generated by `python -m volee_ml.evaluate`. Log loss is the main metric (lower i
 ## Test set — {config.TEST_YEARS[0]}–{config.TEST_YEARS[1]}, looked at once
 
 {markdown(test_table)}
+
+## Is it real? 95% confidence intervals on the test set
+
+Log-loss improvement, with a tournament-level cluster bootstrap ({BOOTSTRAP_ROUNDS:,} re-draws).
+An interval entirely above zero means the gain is not luck.
+
+{ci_table(test, test_preds)}
+
+![Improvement by year](by_year.png)
 
 ## Validation set — {config.VALID_YEARS[0]}–{config.VALID_YEARS[1]}, used to compare models
 
@@ -161,4 +294,6 @@ Logistic regression weights (features scaled to the same spread; positive helps 
 """
     (config.REPORTS_DIR / "results.md").write_text(report)
     print(markdown(test_table))
+    print()
+    print(ci_table(test, test_preds))
     print(f"\nWrote {config.REPORTS_DIR / 'results.md'}")
