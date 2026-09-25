@@ -72,7 +72,9 @@ make demo      # the forecaster at http://localhost:8766
 ## Learn it
 
 Start with **[GUIDE.md](GUIDE.md)**. It covers the reading order, every concept in
-plain words, how to read the results, exercises and interview questions.
+plain words, how to read the results, exercises and interview questions. Then work
+through **[STUDY.md](STUDY.md)**: nine hands-on lessons with practice questions,
+hidden answers and a capstone.
 
 ## Data
 
