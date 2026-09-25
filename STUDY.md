@@ -1,6 +1,6 @@
 # Study plan — learn this project well enough to defend it
 
-Nine lessons, about 30–60 minutes each. Every lesson has the same shape:
+Eleven lessons (0–10), about 30–60 minutes each. Every lesson has the same shape:
 
 * **Goal**: what you should be able to do afterwards
 * **Read**: the files, in order
@@ -27,9 +27,11 @@ make demo       # open http://localhost:8766
 ```
 Then open `reports/results.md` and just look. Don't try to understand it yet.
 
-**Key ideas:** the project is seven steps, each a file in `volee_ml/`:
-`data` → `tune` → `features` → `train` → `evaluate` → `volee` → `export`.
-Every step writes a file the next step reads.
+**Key ideas:** the project is eight steps, each a file in `volee_ml/`:
+`data` → `tune` → `features` → `train` → `evaluate` → `volee` → `export` → `publish`.
+Every step writes a file the next step reads. `make all` runs the first seven.
+`publish` is run by hand: it prints the SQL that loads the model into Volee's
+live database (Lesson 9).
 
 **Practice**
 
@@ -45,7 +47,7 @@ Every step writes a file the next step reads.
    `make features train evaluate`. Tuning only needs rerunning if you change the rating system. Data only needs rerunning if you change what's downloaded or kept.
    </details>
 
-**Checkpoint:** you can name the seven steps in order without looking.
+**Checkpoint:** you can name the eight steps in order without looking.
 
 ---
 
@@ -461,29 +463,157 @@ print(winner_score(12, 2, 1.0))     # plain Glicko: always 1
    Multicollinearity. Single weights can have misleading signs, like form appearing to favour the player with the worse form. Summing related features gives reasons that read correctly.
    </details>
 
-5. The model runs inside Volee's database in "shadow mode". What does that mean, and why start there instead of showing it to players?
+5. Why keep the model out of the app's request path, even though it's tiny?
    <details><summary>Answer</summary>
 
-   It forecasts every accepted adult singles challenge and records the result, but nobody sees it and nothing in the app changes. It measures real-world accuracy on club players, the domain-shift question, with zero risk to users. You only show it if the scoreboard says it helps.
-   </details>
-
-6. The database computes the model with no Python. How?
-   <details><summary>Answer</summary>
-
-   Logistic regression is just numbers. `publish.py` exports the scaling, weights and intercept as one SQL row, and a SQL function repeats the arithmetic. A probe checks it matches sklearn to 1e-6.
-   </details>
-
-7. Why keep the model out of the app's request path, even though it's tiny?
-   <details><summary>Answer</summary>
-
-   So nothing in the app waits on it. A nightly job writes forecasts to a table, and the app just reads a number.
+   So nothing a player does ever waits on it or breaks because of it. In Volee it runs in a database trigger *after* a challenge is accepted, writes to its own table, and swallows its own errors. Lesson 9 covers this.
    </details>
 
 **Checkpoint:** explain domain shift and your plan for it in under a minute.
 
 ---
 
-## Lesson 9 — Put it together
+## Lesson 9 — In production: shadow mode inside Volee (60 min)
+
+**Goal:** explain how the model runs in Volee's live database without affecting
+anyone, how you know it computes the same answer as the trained model, and what
+you can honestly claim because of it.
+
+**Read** (the first four are in the **Volee** repo):
+1. `docs/ml-shadow-forecasts.md`: the one-page overview. Start here.
+2. `supabase/migrations/2026_09_25_ml_shadow_forecasts.sql`: read the top comment, then these functions in order:
+   `ml_score_games`, `ml_player_summary`, `ml_features`, `ml_predict`, `ml_record_forecast`,
+   `ml_challenges_trigger`, `ml_matches_trigger`, `admin_ml_scoreboard`.
+3. `supabase/migrations/2026_09_25_ml_model_v1.sql`: the whole model, as one row of numbers.
+4. `tests/sql/ml_shadow_forecasts.sql`: the probe that proves it all works.
+5. In this repo: `volee_ml/publish.py`.
+
+**Do:**
+1. `make publish | head -c 600` and look at the SQL it prints. Find the `weights`
+   and `intercept`. That's the entire trained model.
+2. Put `ml_features` next to `features.py`. For `form_diff`, `games_share_diff` and
+   `h2h_edge`, find the matching SQL line and check it uses the same formula,
+   including the 2.5-and-2.5 smoothing.
+3. In the Supabase SQL editor, look at what's been recorded so far:
+   ```sql
+   select scope, round(glicko_prob::numeric, 3) as glicko, round(model_prob::numeric, 3) as model,
+          a_won, forecast_at
+   from ml_forecasts order by forecast_at desc limit 10;
+   ```
+
+**Key ideas**
+* **Shadow mode** means the model runs on real traffic and its answers are
+  recorded, but nobody sees them and nothing changes. It's how you measure a model
+  in the real world, here the pro-to-club domain shift, with zero risk to users.
+* **The timeline:** challenge **accepted** → trigger freezes 16 features and stores
+  three forecasts (Glicko-2, margin-aware Glicko, the model). Match **reported** →
+  trigger fills in who won and updates the shadow margin-aware ratings.
+* **Same model, third implementation.** sklearn (training), JavaScript (the demo) and
+  SQL (Volee) must all agree. `publish.py` ships the numbers, and the probe checks
+  SQL equals sklearn to 1e-6.
+* **Real-world data is messier.** Volee writes scores from the *reporter's* side, so
+  "4-6, 3-6" can be a win. `ml_score_games` works out the winner from who took
+  more sets before counting games.
+* **Safety by design:** tables are service-role only, triggers run *after* the app's
+  write and catch their own errors, adult singles only, no backfill.
+* **Honest bookkeeping:** every forecast stores which model version made it,
+  test accounts are recorded but kept out of the scoreboard, and the record starts
+  the day it shipped.
+
+**Practice**
+
+1. Why forecast when a challenge is *accepted*, not when it's created?
+   <details><summary>Answer</summary>
+
+   Acceptance is the last moment before the match is definitely happening, so the
+   features are as fresh as possible while still being strictly pre-match. Many
+   created challenges are declined or cancelled and never become matches.
+   </details>
+
+2. Why store all 16 features with each forecast, not just the probability?
+   <details><summary>Answer</summary>
+
+   They're the exact pre-match inputs, frozen. Later you can check why a forecast
+   was wrong, re-score with a new model, or retrain on Volee's own matches, all
+   without leakage, because the features can't be recomputed from today's data
+   once ratings have moved.
+   </details>
+
+3. Volee stored the score `"4-6, 3-6"`. How many games did the winner win, and how does the SQL know?
+   <details><summary>Answer</summary>
+
+   **12 to 7.** The right-hand side took both sets, so the right side is the winner:
+   6 + 6 = 12 against 4 + 3 = 7. The loser reported it from their own side.
+   The pro data never had this problem, because it always lists the winner first.
+   </details>
+
+4. Why no backfill of past matches?
+   <details><summary>Answer</summary>
+
+   `profiles` only holds each player's rating *today*. Forecasting a June match with
+   September's rating uses information from after the match, which is leakage,
+   exactly the Lesson 4 problem in production form. So the record starts on day one.
+   </details>
+
+5. The triggers swallow their own errors. What's the benefit, and what's the risk?
+   <details><summary>Answer</summary>
+
+   **Benefit:** a bug in the ML code can never stop someone accepting a challenge or
+   reporting a score. **Risk:** failures are silent. They only show as a warning in
+   the logs or as missing forecasts. The mitigation is the probe and the scoreboard's
+   counts: if accepted challenges stop producing rows, something broke.
+   </details>
+
+6. Test accounts' forecasts are recorded but excluded from the scoreboard. Why both?
+   <details><summary>Answer</summary>
+
+   Recording them lets you test the whole pipeline end to end. Excluding them keeps
+   the accuracy numbers about real players; testers replaying the same scripted
+   matches would skew them.
+   </details>
+
+7. Volee ratings sit around 100–700; the pros' sat around 1500. Why is `glicko_prob` still valid, and why might `rating_diff` still cause trouble?
+   <details><summary>Answer</summary>
+
+   Glicko's forecast only depends on the *difference* between ratings, and both use the
+   same scale constant, so shifting everyone by 1000 changes nothing. But how big
+   differences typically are can still differ: Volee seeds ratings from NTRP
+   (3.5 → 350), so the spread of gaps may not look like the pros'. That's domain
+   shift again, and exactly what shadow mode is there to measure.
+   </details>
+
+8. You retrain and publish a new model. What happens to the old forecasts?
+   <details><summary>Answer</summary>
+
+   Nothing. They keep the id of the model that made them, and the old model row stays
+   in `ml_models`, inactive. Every stored forecast can always be traced to the exact
+   numbers that produced it.
+   </details>
+
+9. What should the scoreboard show before you'd let players see the forecasts?
+   <details><summary>Answer</summary>
+
+   A few hundred resolved real matches where the model's log loss beats Glicko's,
+   ideally with a bootstrap interval above zero as in Lesson 7, and a calibration
+   check showing its percentages mean what they say. Even then, start with soft labels
+   like "close match" rather than exact percentages.
+   </details>
+
+10. What can you honestly put on your resume today, and what can't you yet?
+    <details><summary>Answer</summary>
+
+    **Can:** "deployed in shadow mode in the app's production database, forecasting
+    live matches in SQL and scored against real results." **Can't yet:** "improved
+    accuracy for Volee's players." That needs the scoreboard to prove it. Keep the
+    accuracy claim to the pro-data result.
+    </details>
+
+**Checkpoint:** walk someone from "Theo taps Accept" to "the forecast is scored"
+naming each table and trigger involved, and explain why none of it can hurt Theo.
+
+---
+
+## Lesson 10 — Put it together
 
 **A 60-second pitch.** Practise until you can say it without notes.
 
@@ -496,8 +626,11 @@ print(winner_score(12, 2, 1.0))     # plain Glicko: always 1
 > optimal. Logistic regression beat it by 1.74% log loss, with a 95% cluster-bootstrap
 > interval of 1.4 to 2.1%, and by 3% for new players. The biggest signal was
 > margin of victory, so I built a margin-aware Glicko that improves the rating
-> system on its own with a one-line change. There's a live demo that runs the
-> model in the browser."
+> system on its own with a one-line change. It now runs in shadow mode inside the
+> app's production database: every accepted singles challenge is forecast in SQL
+> and scored against the real result, invisibly, so I can measure it on club
+> players before anyone sees it. There's also a live demo that runs the model in
+> the browser."
 
 **Mock interview.** Answer each in under a minute, then check GUIDE.md section 7.
 1. Walk me through your pipeline.
@@ -511,7 +644,15 @@ print(winner_score(12, 2, 1.0))     # plain Glicko: always 1
 
    Domain shift: it's trained on pros and meant for club players, and Volee doesn't have enough matches yet to measure the gap. Then say how you'd fix it: retrain on Volee data and evaluate the same way.
    </details>
-8. If you had another week, what would you do?
+8. Is it actually in production? What would make you show it to users?
+   <details><summary>A strong answer</summary>
+
+   Yes, in shadow mode: live forecasts inside the app's database, recorded and scored,
+   but invisible. I'd show it once a few hundred real matches show it beats Glicko
+   with an interval above zero and good calibration. Even then I'd start with a
+   "close match" label rather than exact percentages.
+   </details>
+9. If you had another week, what would you do?
    <details><summary>A strong answer</summary>
 
    Test on Challenger and ITF matches as a closer stand-in for club tennis. Try margin by sets. Retrain on Volee's data as it accumulates, and propose the margin-aware rating to the app.
@@ -524,13 +665,19 @@ the change in log loss **with its bootstrap interval**. Then decide honestly
 whether to keep it. If you can do this end to end without help, you
 understand the project.
 
+**Capstone, part 2 (once Volee has ~100 real resolved forecasts).** Export
+`ml_forecasts` for real players, compute the model's log loss against Glicko's with
+the cluster bootstrap from `evaluate.py` (cluster by player instead of tournament),
+and write up whether the model holds up on club tennis. That's the first real-world
+result of the project, and it's worth a README section.
+
 ---
 
 ## Answer key for self-grading
 
 After all nine lessons, you should be able to, without notes:
 
-- [ ] Name the seven pipeline steps and what each produces
+- [ ] Name the eight pipeline steps and what each produces
 - [ ] Explain log loss, calibration and why the baseline matters
 - [ ] Explain rating, RD and volatility, and how parity was proven
 - [ ] Justify each data filter
@@ -540,4 +687,7 @@ After all nine lessons, you should be able to, without notes:
 - [ ] Explain why the simple model won, and read the weights correctly
 - [ ] Explain the cluster bootstrap and read the by-year chart
 - [ ] Explain domain shift and the plan for Volee
+- [ ] Walk through shadow mode from "Accept" to "scored", naming each table and trigger
+- [ ] Explain how sklearn, JavaScript and SQL are kept identical, and how models are versioned
+- [ ] Say exactly what you can and can't claim on your resume today
 - [ ] Give the 60-second pitch
