@@ -461,7 +461,19 @@ print(winner_score(12, 2, 1.0))     # plain Glicko: always 1
    Multicollinearity. Single weights can have misleading signs, like form appearing to favour the player with the worse form. Summing related features gives reasons that read correctly.
    </details>
 
-5. Why keep the model out of the app's request path, even though it's tiny?
+5. The model runs inside Volee's database in "shadow mode". What does that mean, and why start there instead of showing it to players?
+   <details><summary>Answer</summary>
+
+   It forecasts every accepted adult singles challenge and records the result, but nobody sees it and nothing in the app changes. It measures real-world accuracy on club players, the domain-shift question, with zero risk to users. You only show it if the scoreboard says it helps.
+   </details>
+
+6. The database computes the model with no Python. How?
+   <details><summary>Answer</summary>
+
+   Logistic regression is just numbers. `publish.py` exports the scaling, weights and intercept as one SQL row, and a SQL function repeats the arithmetic. A probe checks it matches sklearn to 1e-6.
+   </details>
+
+7. Why keep the model out of the app's request path, even though it's tiny?
    <details><summary>Answer</summary>
 
    So nothing in the app waits on it. A nightly job writes forecasts to a table, and the app just reads a number.

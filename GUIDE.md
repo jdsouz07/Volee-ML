@@ -186,6 +186,18 @@ takes 5–20 minutes.
 
 ## 6. Using it in Volee
 
+**Already done: shadow mode.** Since 2026-09-25 the model runs in Volee's database
+without anyone seeing it. When a singles challenge is accepted, a trigger computes
+all 16 features from Volee's own tables in SQL and stores three forecasts: the
+model's, Glicko-2's and the margin-aware Glicko's. When the score comes in, the
+forecast is resolved. An admin scoreboard compares all three on real matches.
+The model gets into the database via `publish.py`, which turns the weights into one
+SQL statement. This is how you get real-world evidence *before* changing the
+product. It's also the honest answer to domain shift: measure it instead of
+guessing. See `docs/ml-shadow-forecasts.md` in the Volee repo.
+
+Next steps, once the scoreboard has a few hundred matches:
+
 1. **The margin-aware rating first.** It's the cheapest win: change the score
    passed to `glicko2_update_after_period` from `1` / `0` to the blended score,
    and move the default RD and volatility to the tuned values. Nothing new runs
@@ -218,6 +230,10 @@ takes 5–20 minutes.
 * *How does the demo run the model without a server?* Logistic regression is
   just weights. We export them with each player's current state, and the page
   does the same arithmetic, tested to match sklearn.
+* *Is it actually in production?* Yes, in shadow mode: it forecasts every
+  accepted adult singles challenge inside the app's database and is scored
+  against real results, but isn't shown to users yet. That's deliberate, because
+  you measure before you ship to users.
 * *What would you do next?* Retrain on Volee's own matches, add Challenger and
   ITF matches as a closer proxy for club tennis, and try margin by sets.
 
@@ -230,5 +246,7 @@ takes 5–20 minutes.
 > Glicko-2 rating system by **1.74% log loss (95% CI 1.41–2.09%)** on held-out
 > 2023–26 matches, and by 3.1% for new players. Designed a **margin-aware Glicko-2**
 > that improves the rating system itself by 0.35% with a one-line change.
-> Leakage-tested, time-split pipeline with cluster-bootstrap evaluation and a
+> **Deployed in shadow mode in the app's production database**: every accepted
+> singles challenge is forecast in SQL and scored against the real result. A
+> leakage-tested, time-split pipeline with cluster-bootstrap evaluation, plus a
 > browser demo that runs the model client-side.

@@ -12,6 +12,7 @@ help:
 	@echo "make volee     step 5: run the model on Volee-format matches"
 	@echo "make export    step 6: rebuild the live demo's data (docs/demo_data.json)"
 	@echo "make demo      open the demo locally at http://localhost:8766"
+	@echo "make publish   print the SQL that loads this model into Volee (shadow mode)"
 	@echo "make test      run the tests"
 
 setup:
@@ -37,7 +38,9 @@ export:
 	$(PY) -m volee_ml.export
 demo:
 	$(PY) -m http.server 8766 --directory docs
+publish:
+	@$(PY) -m volee_ml.publish
 test:
 	.venv/bin/pytest -q
 
-.PHONY: help setup all data tune features train evaluate volee export demo test
+.PHONY: help setup all data tune features train evaluate volee export demo publish test

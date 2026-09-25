@@ -40,6 +40,22 @@ Test set: 16,107 matches from 2023–2026, never seen while building or tuning a
 Full tables, calibration and feature importance: [`reports/results.md`](reports/results.md) ·
 tuning search: [`reports/tuning.md`](reports/tuning.md).
 
+## Running in production (shadow mode)
+
+The model runs **inside Volee's live database**. Since 2026-09-25, every accepted
+singles challenge gets a forecast from the model, from Glicko-2 and from the
+margin-aware Glicko, frozen before the match and resolved when the score is
+reported. It's invisible to players and never touches matchmaking or ratings.
+It's there to measure, on real club matches, whether the pro-trained model
+holds up before anyone shows it.
+
+* The trained model is shipped as numbers (`python -m volee_ml.publish` → one SQL
+  statement) and evaluated **in SQL** with no Python server. A database probe
+  checks the SQL answer equals sklearn's to 1e-6.
+* A shadow margin-aware rating is kept for every player alongside Volee's real one.
+* An admin-only scoreboard reports log loss and accuracy of all three on
+  real-player matches as they accumulate.
+
 ## How it works
 
 ```
