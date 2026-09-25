@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+# Downloaded and generated data: rebuilt by `make data features`
+data/
+# Trained models: rebuilt by `make train`
+models/
