@@ -291,8 +291,8 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
     ax.set_ylim(0, 2.6)
-    ax.set_title("Better forecasts than Glicko-2", fontsize=20, pad=58)
-    ax.text(0, 1.035, "% less prediction error than the rating system\nin my tennis app, Volee",
+    ax.set_title("Better forecasts than Glicko-2", fontsize=20, pad=36)
+    ax.text(0, 1.035, "% less prediction error than the rating system in Volee",
             transform=ax.transAxes, color=SUB, fontsize=12, va="bottom", linespacing=1.4)
     ax.text(0, -0.2, "Measured on 16k held-out matches · lines = 95% confidence interval",
             transform=ax.transAxes, color=SUB, fontsize=9.5)
