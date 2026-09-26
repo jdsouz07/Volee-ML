@@ -15,6 +15,11 @@ everything here can run on Volee's own matches.
 
 ## Results
 
+<p>
+  <img src="reports/figures/linkedin_1.png" width="49%" alt="Prediction error reduction vs Volee's Glicko-2 for three models">
+  <img src="reports/figures/linkedin_2.png" width="49%" alt="Prediction error reduction for all players vs new players">
+</p>
+
 Test set: 16,107 matches from 2023–2026, never seen while building or tuning anything.
 
 | | Log loss ↓ | Accuracy | Improvement vs Volee (95% interval) |
@@ -38,7 +43,8 @@ Test set: 16,107 matches from 2023–2026, never seen while building or tuning a
   `0.75 + 0.25 × share of games won`, so 6-1 6-1 counts for more than 7-6 7-6.
 
 Full tables, calibration and feature importance: [`reports/results.md`](reports/results.md) ·
-tuning search: [`reports/tuning.md`](reports/tuning.md).
+tuning search: [`reports/tuning.md`](reports/tuning.md) ·
+more charts: [`reports/figures/`](reports/figures) (`make figures`).
 
 ## Running in production (shadow mode)
 
@@ -89,7 +95,7 @@ make demo      # the forecaster at http://localhost:8766
 
 Start with **[GUIDE.md](GUIDE.md)**. It covers the reading order, every concept in
 plain words, how to read the results, exercises and interview questions. Then work
-through **[STUDY.md](STUDY.md)**: nine hands-on lessons with practice questions,
+through **[STUDY.md](STUDY.md)**: eleven hands-on lessons with practice questions,
 hidden answers and a capstone.
 
 ## Data
