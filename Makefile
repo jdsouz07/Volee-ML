@@ -32,6 +32,9 @@ train:
 	$(PY) -m volee_ml.train
 evaluate:
 	$(PY) -m volee_ml.evaluate
+figures:
+	$(PY) -m volee_ml.figures
+
 volee:
 	$(PY) -m volee_ml.volee
 export:
@@ -43,4 +46,4 @@ publish:
 test:
 	.venv/bin/pytest -q
 
-.PHONY: help setup all data tune features train evaluate volee export demo publish test
+.PHONY: help setup all data tune features train evaluate figures volee export demo publish test
