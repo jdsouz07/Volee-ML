@@ -284,7 +284,7 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
         est, lo, hi = bootstrap_improvement(test, preds[k], preds["volee_glicko"])
         ax.bar(i, est * 100, 0.6, color=COLOR[k])
         ax.vlines(i, lo * 100, hi * 100, color=INK, linewidth=1.5)
-        ax.text(i, hi * 100 + 0.08, f"+{est:.2%}", ha="center", fontsize=17, fontweight="bold", color=INK)
+        ax.text(i, hi * 100 + 0.08, f"{est:.2%}", ha="center", fontsize=17, fontweight="bold", color=INK)
     ax.set_xticks(range(3))
     ax.set_xticklabels([short[k] for k in keys], fontsize=12, color=INK)
     ax.tick_params(axis="x", length=0)
@@ -292,7 +292,7 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
     ax.spines["left"].set_visible(False)
     ax.set_ylim(0, 2.6)
     ax.set_title("Better forecasts than Glicko-2", fontsize=20, pad=58)
-    ax.text(0, 1.035, "How much less prediction error each model makes\nthan the rating system in my tennis app, Volee",
+    ax.text(0, 1.035, "% less prediction error than the rating system\nin my tennis app, Volee",
             transform=ax.transAxes, color=SUB, fontsize=12, va="bottom", linespacing=1.4)
     ax.text(0, -0.2, "Measured on 16k held-out matches · lines = 95% confidence interval",
             transform=ax.transAxes, color=SUB, fontsize=9.5)
@@ -309,7 +309,7 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.bar([0, 1], gains, 0.55, color=["#86b6ef", COLOR["logistic_regression"]])
     for i, g in enumerate(gains):
-        ax.text(i, g + 0.08, f"+{g:.1f}%", ha="center", fontsize=22, fontweight="bold", color=INK)
+        ax.text(i, g + 0.08, f"{g:.1f}%", ha="center", fontsize=22, fontweight="bold", color=INK)
     ax.set_xticks([0, 1])
     ax.set_xticklabels(["All players", "New players"], fontsize=14, color=INK)
     ax.tick_params(axis="x", length=0)
@@ -319,7 +319,7 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
     ax.set_title("Biggest gains for new players", fontsize=20, pad=58)
     ax.text(0, 1.035, "New players' ratings are the least reliable, so this is\nwhere better predictions would make Volee's matchups fairer",
             transform=ax.transAxes, color=SUB, fontsize=12, va="bottom", linespacing=1.4)
-    ax.text(0, -0.13, "Less prediction error (log loss) than Glicko-2", transform=ax.transAxes, color=SUB, fontsize=9.5)
+    ax.text(0, -0.13, "% less prediction error (log loss) than Glicko-2", transform=ax.transAxes, color=SUB, fontsize=9.5)
     fig.subplots_adjust(left=0.07, right=0.95, top=0.8, bottom=0.15)
     save(fig, "linkedin_2.png")
 
