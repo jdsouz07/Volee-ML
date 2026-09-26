@@ -291,10 +291,12 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
     ax.set_ylim(0, 2.6)
-    ax.set_title("Better forecasts than Glicko-2", fontsize=20, pad=16)
-    ax.text(0, -0.2, "Log-loss improvement · 16k held-out matches · lines = 95% CI",
+    ax.set_title("Better forecasts than Glicko-2", fontsize=20, pad=58)
+    ax.text(0, 1.035, "How much less prediction error each model makes\nthan the rating system in my tennis app, Volee",
+            transform=ax.transAxes, color=SUB, fontsize=12, va="bottom", linespacing=1.4)
+    ax.text(0, -0.2, "Measured on 16k held-out matches · lines = 95% confidence interval",
             transform=ax.transAxes, color=SUB, fontsize=9.5)
-    fig.subplots_adjust(left=0.07, right=0.95, top=0.87, bottom=0.2)
+    fig.subplots_adjust(left=0.07, right=0.95, top=0.8, bottom=0.2)
     save(fig, "linkedin_1.png")
 
     unsure = ((test["rd_a"] > 90) | (test["rd_b"] > 90)).to_numpy()
@@ -314,9 +316,11 @@ def linkedin(test: pd.DataFrame, preds: dict) -> None:
     ax.set_yticks([])
     ax.spines["left"].set_visible(False)
     ax.set_ylim(0, 3.7)
-    ax.set_title("Biggest gains for new players", fontsize=20, pad=16)
-    ax.text(0, -0.13, "Log-loss improvement over Glicko-2 · new = rating still uncertain", transform=ax.transAxes, color=SUB, fontsize=9.5)
-    fig.subplots_adjust(left=0.07, right=0.95, top=0.87, bottom=0.15)
+    ax.set_title("Biggest gains for new players", fontsize=20, pad=58)
+    ax.text(0, 1.035, "New players' ratings are the least reliable, so this is\nwhere better predictions would make Volee's matchups fairer",
+            transform=ax.transAxes, color=SUB, fontsize=12, va="bottom", linespacing=1.4)
+    ax.text(0, -0.13, "Less prediction error (log loss) than Glicko-2", transform=ax.transAxes, color=SUB, fontsize=9.5)
+    fig.subplots_adjust(left=0.07, right=0.95, top=0.8, bottom=0.15)
     save(fig, "linkedin_2.png")
 
 
