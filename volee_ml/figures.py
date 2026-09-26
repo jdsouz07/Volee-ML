@@ -271,6 +271,55 @@ def summary_card(test: pd.DataFrame, preds: dict) -> None:
     save(fig, "0_summary_card.png")
 
 
+# ---------------------------------------------------------------------------
+# 7. LinkedIn: two square images, as little text as possible
+# ---------------------------------------------------------------------------
+def linkedin(test: pd.DataFrame, preds: dict) -> None:
+    keys = ["logistic_regression", "gradient_boosting", "margin_glicko"]
+    short = {"logistic_regression": "Logistic\nregression", "gradient_boosting": "Gradient\nboosting",
+             "margin_glicko": "Margin-aware\nGlicko-2"}
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    for i, k in enumerate(keys):
+        est, lo, hi = bootstrap_improvement(test, preds[k], preds["volee_glicko"])
+        ax.bar(i, est * 100, 0.6, color=COLOR[k])
+        ax.vlines(i, lo * 100, hi * 100, color=INK, linewidth=1.5)
+        ax.text(i, hi * 100 + 0.08, f"+{est:.2%}", ha="center", fontsize=17, fontweight="bold", color=INK)
+    ax.set_xticks(range(3))
+    ax.set_xticklabels([short[k] for k in keys], fontsize=12, color=INK)
+    ax.tick_params(axis="x", length=0)
+    ax.set_yticks([])
+    ax.spines["left"].set_visible(False)
+    ax.set_ylim(0, 2.6)
+    ax.set_title("Better forecasts than Glicko-2", fontsize=20, pad=16)
+    ax.text(0, -0.2, "Log-loss improvement · 16k held-out matches · lines = 95% CI",
+            transform=ax.transAxes, color=SUB, fontsize=9.5)
+    fig.subplots_adjust(left=0.07, right=0.95, top=0.87, bottom=0.2)
+    save(fig, "linkedin_1.png")
+
+    unsure = ((test["rd_a"] > 90) | (test["rd_b"] > 90)).to_numpy()
+    y = test["y"]
+    gains = []
+    for m in (np.ones(len(test), bool), unsure):
+        base = log_loss(y[m], preds["volee_glicko"][m])
+        gains.append((base - log_loss(y[m], preds["logistic_regression"][m])) / base * 100)
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.bar([0, 1], gains, 0.55, color=["#86b6ef", COLOR["logistic_regression"]])
+    for i, g in enumerate(gains):
+        ax.text(i, g + 0.08, f"+{g:.1f}%", ha="center", fontsize=22, fontweight="bold", color=INK)
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["All players", "New players"], fontsize=14, color=INK)
+    ax.tick_params(axis="x", length=0)
+    ax.set_yticks([])
+    ax.spines["left"].set_visible(False)
+    ax.set_ylim(0, 3.7)
+    ax.set_title("Biggest gains for new players", fontsize=20, pad=16)
+    ax.text(0, -0.13, "Log-loss improvement over Glicko-2 · new = rating still uncertain", transform=ax.transAxes, color=SUB, fontsize=9.5)
+    fig.subplots_adjust(left=0.07, right=0.95, top=0.87, bottom=0.15)
+    save(fig, "linkedin_2.png")
+
+
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     features = load_features()
@@ -286,3 +335,4 @@ if __name__ == "__main__":
     by_year(both, both_preds)
     calibration(test, test_preds)
     features_chart(models["logistic_regression"])
+    linkedin(test, test_preds)
